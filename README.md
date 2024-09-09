@@ -62,6 +62,14 @@ raku obsidian-2-jupyter/Tools/obsidian2ipynb --verbose
 
 Maybe you can just double click `obsidian2ipynb` to execute the script.
 
+## Daemon Mode
+
+In daemon mode the input-dir is watched for changes and Jupyter notebooks get generated automatically on change of Markdown files.
+
+```bash
+raku obsidian-2-jupyter/Tools/obsidian2ipynb --daemon --input-dir /path/to/your/vault
+```
+
 ## Jupyter
 
 Finally, open the created Notebooks in Jupyter and compare the output to Obsidian.
