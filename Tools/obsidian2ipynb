@@ -1,16 +1,17 @@
 #!/usr/bin/env raku
 use v6.d;
 use Markdown::Grammar;
+use File::Find;
 
 # for Raku regex see https://docs.raku.org/language/regexes
 
 # ignored patterns in file and directory names
 my $black-list-file-regex = / README\.md | LICENSE\.md /;
-my $black-list-folder-regex = / \.ipynb_checkpoints | \.git | \.obsidian /;
+my $black-list-folder-regex = / \.ipynb_checkpoints | \.git | \.obsidian | \.idea | \.vscode | \.eclipse /;
 
 # white list markdown files pattern to be converted
-#my $white-list-regex = / Exercises | Notes /;
-my $white-list-regex = / .+ /;
+#my $white-list-file-regex = / Exercises | Notes /;
+my $white-list-file-regex = / .+ /;
 
 # convert only Markdown files that are not empty
 #my $content-regex = / \w+ /;
@@ -26,6 +27,9 @@ my $content-regex = / \` ** 3 @languages .+ \` ** 3 /;
 
 # we use a global variable for setting verbosity
 my $global-verbose-mode = False;
+
+# how to identify markdown files
+my $markdown-file-regex = /\.md$$/; 
 
 #| Converts Markdown Files in $input-dir into Jupyter Notebooks.
 sub MAIN(IO::Path(Str) :$input-dir =  $*PROGRAM.parent(2), #= defaults to ../../ relative to the path of this script. 
@@ -45,7 +49,7 @@ sub MAIN(IO::Path(Str) :$input-dir =  $*PROGRAM.parent(2), #= defaults to ../../
 #| convert all files in input-dir to jupyter notebooks
 sub single-run(IO::Path $input-dir) {
     
-    my @markdown-files = all-md-files-recursively-in($input-dir);
+    my @markdown-files = find-markdown-files($input-dir);
     status-message($input-dir, @markdown-files);
 
     # parallel, out-of-order one-time processing of markdown files
@@ -65,19 +69,13 @@ sub daemon-mode(IO::Path $input-dir) {
 
     single-run($input-dir);
     
-    my @watched-directories;
-    for all-directories-recursively-in($input-dir) -> $directory {
-        say "adding folder $directory to watch-list";
-        @watched-directories.push: IO::Notification.watch-path($directory)
-    }
-
+    my $supply = watch-recursive($input-dir, :update);
+    
     say "Starting daemon mode - press CTRL+c to abort";
     react {
-        for @watched-directories -> $watcher {
-            whenever $watcher -> $event {
+            whenever $supply -> $event {
                 process-event($event)
             }
-        }
     }
 }
 
@@ -96,7 +94,7 @@ sub status-message(IO::Path $input-dir, @markdown-files){
     say "Markdown file count\t", @markdown-files.elems;
     say "Black list folder regex\t", $black-list-folder-regex if $global-verbose-mode;
     say "Black list file regex\t", $black-list-file-regex if $global-verbose-mode;
-    say "White list regex\t", $white-list-regex if $global-verbose-mode;
+    say "White list file regex\t", $white-list-file-regex if $global-verbose-mode;
     say "Content regex\t", $content-regex if $global-verbose-mode;
     prompt "CTRL+c to stop - any other key to proceed.";
 }
@@ -119,7 +117,7 @@ sub needs-processing(IO::Path $markdown-file) {
         return False
     }
 
-    if not $markdown-file.match( $white-list-regex  ) {
+    if not $markdown-file.match( $white-list-file-regex  ) {
         note "not white listed:\tignorring\t$markdown-file" if $global-verbose-mode;
         return False
     }
@@ -133,36 +131,36 @@ sub needs-processing(IO::Path $markdown-file) {
     return True, $markdown-file-content
 }
 
-sub all-md-files-recursively-in(IO::Path $input-dir){
-    my @stack = $input-dir.IO;
-    gather while @stack {
-        with @stack.pop {
-            when :d { @stack.append: .dir }
-            .take when .extension.lc eq 'md'
-        }
-    }
-}
-
-sub all-directories-recursively-in(IO::Path $input-dir){
-    my @stack = $input-dir.IO;
-    gather while @stack {
-        with @stack.pop {
-            when :d { 
-                @stack.append: .dir;
-                .take unless $_ ~~ $black-list-folder-regex
-            }
-        }
-    }
-}
-
 sub process-event(IO::Notification::Change $event){
-    if $event.event eq 'created' and $event.path.IO.d and not $event ~~ $black-list-folder-regex {
-        say "New folder deteted: {$event.path}, Type: {$event.event}" if $global-verbose-mode;
-        say "ToDo: add newly created files to watch list - workaround currently: restart daemon!" if $global-verbose-mode
-    } elsif $event.path.IO.f and $event.path ~~ /\.md$$/ {
+    if $event.path.IO.f and $event.path ~~ $markdown-file-regex {
         say "File changed: {$event.path}, Type: {$event.event}" if $global-verbose-mode;
         process-file($event.path.IO)
     } else {
         say "Ignoring File changed: {$event.path}, Type: {$event.event}" if $global-verbose-mode
+    }
+}
+
+sub find-markdown-files(IO::Path:D $dir){
+    find :$dir, :type<file>, name => $markdown-file-regex; #, exclude => any($black-list-folder-regex, $black-list-file-regex); # we do exclude in needs-processing() to give good error messages
+}
+
+#| copy/paste from see https://github.com/raku-community-modules/IO-Notification-Recursive/blob/main/lib/IO/Notification/Recursive.rakumod
+sub find-dirs(IO::Path:D $dir) {
+    slip $dir.IO, slip find :$dir, :type<dir>, exclude => $black-list-folder-regex
+}
+
+sub watch-recursive(IO(Cool) $start, Bool :$update) {
+    supply {
+        my sub watch-it(IO::Path:D $io) {
+            whenever $io.watch -> $e {
+                if $update {
+                    if $e.event ~~ FileRenamed && $e.path.IO.d {
+                        watch-it($_) for find-dirs $e.path.IO;
+                    }
+                }
+                emit $e;
+            }
+        }
+        watch-it($_) for find-dirs $start;
     }
 }
