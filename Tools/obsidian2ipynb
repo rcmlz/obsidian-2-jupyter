@@ -73,7 +73,8 @@ sub daemon-mode(IO::Path $input-dir) {
     
     say "Starting daemon mode - press CTRL+c to abort";
     react {
-            whenever $supply -> $event {
+            # see https://docs.raku.org/type/Supply#method_stable for details
+            whenever $supply.stable(0.5) -> $event {
                 process-event($event)
             }
     }
