@@ -1,0 +1,168 @@
+#!/usr/bin/env raku
+use v6.d;
+use Markdown::Grammar;
+
+# for Raku regex see https://docs.raku.org/language/regexes
+
+# ignored patterns in file and directory names
+my $black-list-file-regex = / README\.md | LICENSE\.md /;
+my $black-list-folder-regex = / \.ipynb_checkpoints | \.git | \.obsidian /;
+
+# white list markdown files pattern to be converted
+#my $white-list-regex = / Exercises | Notes /;
+my $white-list-regex = / .+ /;
+
+# convert only Markdown files that are not empty
+#my $content-regex = / \w+ /;
+# convert only Markdown files that have a #jupyter tag
+#my $content-regex = / \#jupyter /;
+# Convert only Markdown files that contain a code block like
+# ```python
+# print("Hello World!")
+# ````
+# or any other language tag listed in @languages
+my @languages = <python raku bash java js ruby perl code rust>;
+my $content-regex = / \` ** 3 @languages .+ \` ** 3 /;
+
+# we use a global variable for setting verbosity
+my $global-verbose-mode = False;
+
+#| Converts Markdown Files in $input-dir into Jupyter Notebooks.
+sub MAIN(IO::Path(Str) :$input-dir =  $*PROGRAM.parent(2), #= defaults to ../../ relative to the path of this script. 
+         Bool          :$verbose = False,                  #= print status messages 
+         Bool          :$daemon = False,                   #= watch input dir for changes and convert markdown to jupyter
+    ) {
+
+    fail "Input directory does not exist: $input-dir" unless $input-dir.d;
+
+    $global-verbose-mode = True if $verbose;
+    
+    $daemon
+        ?? daemon-mode($input-dir)
+        !! single-run($input-dir)
+}
+
+#| convert all files in input-dir to jupyter notebooks
+sub single-run(IO::Path $input-dir) {
+    
+    my @markdown-files = all-md-files-recursively-in($input-dir);
+    status-message($input-dir, @markdown-files);
+
+    # parallel, out-of-order one-time processing of markdown files
+    race for @markdown-files -> $markdown-file {
+        process-file($markdown-file) 
+    }
+}
+
+#| convert single file to jupyter notebook
+sub process-file(IO::Path $markdown-file) {
+    my ($needs-processing, $jupyter-file-name, $jupyter-file-content) = check-and-prepare($markdown-file);
+    write-notebook($jupyter-file-name, $jupyter-file-content) if $needs-processing
+}
+
+#| watch input dir and subfolders and react on file change events
+sub daemon-mode(IO::Path $input-dir) {
+
+    single-run($input-dir);
+    
+    my @watched-directories;
+    for all-directories-recursively-in($input-dir) -> $directory {
+        say "adding folder $directory to watch-list";
+        @watched-directories.push: IO::Notification.watch-path($directory)
+    }
+
+    say "Starting daemon mode - press CTRL+c to abort";
+    react {
+        for @watched-directories -> $watcher {
+            whenever $watcher -> $event {
+                process-event($event)
+            }
+        }
+    }
+}
+
+####################
+# Helper Functions #
+####################
+
+sub write-notebook(IO::Path $jupyter-file-name, Str $jupyter-file-content){
+    $jupyter-file-name.spurt($jupyter-file-content)
+        ?? say "writing notebook $jupyter-file-name"
+        !! note "not converted: could not write to\t$jupyter-file-name"
+}
+
+sub status-message(IO::Path $input-dir, @markdown-files){
+    say "Reading from\t$input-dir";
+    say "Markdown file count\t", @markdown-files.elems;
+    say "Black list folder regex\t", $black-list-folder-regex if $global-verbose-mode;
+    say "Black list file regex\t", $black-list-file-regex if $global-verbose-mode;
+    say "White list regex\t", $white-list-regex if $global-verbose-mode;
+    say "Content regex\t", $content-regex if $global-verbose-mode;
+    prompt "CTRL+c to stop - any other key to proceed.";
+}
+
+sub check-and-prepare(IO::Path $markdown-file){
+    # check
+    my ($process, $markdown-file-content) = needs-processing($markdown-file);
+    return False unless $process;
+
+    # prepare
+    my $jupyter-file-name = $markdown-file.extension("ipynb");
+    my Str $jupyter-file-content = from-markdown($markdown-file-content, flavor => 'obsidian', to => 'jupyter', default-language => 'python');
+    
+    return $process, $jupyter-file-name, $jupyter-file-content
+}
+
+sub needs-processing(IO::Path $markdown-file) {
+    if $markdown-file.match( $black-list-folder-regex  ) or $markdown-file.match( $black-list-file-regex  ) {
+        note "black listed:\tignorring\t$markdown-file" if $global-verbose-mode;
+        return False
+    }
+
+    if not $markdown-file.match( $white-list-regex  ) {
+        note "not white listed:\tignorring\t$markdown-file" if $global-verbose-mode;
+        return False
+    }
+
+    my Str $markdown-file-content = slurp $markdown-file;
+    my $has-accepted-content = $markdown-file-content.match( $content-regex );
+    if not $has-accepted-content {
+        note "content missmatch:\tignoring\t$markdown-file" if $global-verbose-mode;
+        return False
+    }
+    return True, $markdown-file-content
+}
+
+sub all-md-files-recursively-in(IO::Path $input-dir){
+    my @stack = $input-dir.IO;
+    gather while @stack {
+        with @stack.pop {
+            when :d { @stack.append: .dir }
+            .take when .extension.lc eq 'md'
+        }
+    }
+}
+
+sub all-directories-recursively-in(IO::Path $input-dir){
+    my @stack = $input-dir.IO;
+    gather while @stack {
+        with @stack.pop {
+            when :d { 
+                @stack.append: .dir;
+                .take unless $_ ~~ $black-list-folder-regex
+            }
+        }
+    }
+}
+
+sub process-event(IO::Notification::Change $event){
+    if $event.event eq 'created' and $event.path.IO.d and not $event ~~ $black-list-folder-regex {
+        say "New folder deteted: {$event.path}, Type: {$event.event}" if $global-verbose-mode;
+        say "ToDo: add newly created files to watch list - workaround currently: restart daemon!" if $global-verbose-mode
+    } elsif $event.path.IO.f and $event.path ~~ /\.md$$/ {
+        say "File changed: {$event.path}, Type: {$event.event}" if $global-verbose-mode;
+        process-file($event.path.IO)
+    } else {
+        say "Ignoring File changed: {$event.path}, Type: {$event.event}" if $global-verbose-mode
+    }
+}
