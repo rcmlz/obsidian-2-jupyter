@@ -89,13 +89,31 @@ obsidian-2-jupyter/Tools/obsidian2ipynb --help
 
 Assuming you have more than one Obsidian vault, then you want to put the script `obsidian2ipynb` somewhere central.
 
-Assuming you saved it to `C:\Users\<your-name>\Documents\bin\obsidian2ipynb` you can create a `.bat` file per vault on your Desktop.
+Assuming you saved it to `C:\Users\<your-name>\.raku\bin\obsidian2ipynb` you can create a `.bat` file per vault on your Desktop.
 
-So if you have a vault for example in `C:\Users\<your-name>\Documents\Vault_A` put the following two lines in the file `Vault_A_2_Jupyter.bat` on your Desktop.
+So if you have a vault for example in `C:\Users\<your-name>\Documents\obsidian-2-jupyter` put the following lines in the file `obsidian-2-jupyter.bat` on your Desktop.
+
+Adjust the USERNAME accordingly.
 
 ```bash
 @echo off
-C:\Users\<your-name>\Documents\bin\obsidian2ipynb --verbose --input-dir C:\Users\<your-name>\Documents\Vault_A
+set USERNAME=your-user-name
+
+set VAULT=C:\Users\%USERNAME%\Documents\obsidian-2-jupyter
+set BIN=C:\Users\%USERNAME%\.raku\bin
+
+echo Converting an entire vault
+raku %BIN%\obsidian2ipynb --verbose --input-dir %VAULT%
+pause
+
+REM echo Converting single file
+REM raku %BIN%\from-markdown %VAULT%\Exercises\some-exercise.md --flavor obsidian --to jupyter --default-language python --output %VAULT%\Exercises\some-exercise.ipynb
+REM echo created %VAULT%\Exercises\some-exercise.ipynb
+REM pause
+
+REM echo Start daemon mode
+REM raku %BIN%\obsidian2ipynb --daemon --input-dir %VAULT%
+REM pause
 ```
 
 If you are on Mac or Linux, I assume you know how to adjust the input-directories accordingly.
