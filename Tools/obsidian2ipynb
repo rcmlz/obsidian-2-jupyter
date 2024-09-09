@@ -69,12 +69,12 @@ sub daemon-mode(IO::Path $input-dir) {
 
     single-run($input-dir);
     
-    my $supply = watch-recursive($input-dir, :update);
+    # see https://docs.raku.org/type/Supply#method_stable for details
+    my $supply = watch-recursive($input-dir, :update).stable(0.5);
     
     say "Starting daemon mode - press CTRL+c to abort";
     react {
-            # see https://docs.raku.org/type/Supply#method_stable for details
-            whenever $supply.stable(0.5) -> $event {
+            whenever $supply -> $event {
                 process-event($event)
             }
     }
