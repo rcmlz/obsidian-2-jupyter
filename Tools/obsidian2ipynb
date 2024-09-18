@@ -85,9 +85,10 @@ sub daemon-mode(IO::Path $input-dir) {
 ####################
 
 sub write-notebook(IO::Path $jupyter-file-name, Str $jupyter-file-content){
+    my $now = DateTime.now.truncated-to('second');
     $jupyter-file-name.spurt($jupyter-file-content)
-        ?? say "writing notebook $jupyter-file-name"
-        !! note "not converted: could not write to\t$jupyter-file-name"
+        ?? say "$now writing notebook $jupyter-file-name"
+        !! note "$now not converted: could not write to\t$jupyter-file-name"
 }
 
 sub status-message(IO::Path $input-dir, @markdown-files){
