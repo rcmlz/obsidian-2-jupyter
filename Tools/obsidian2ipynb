@@ -29,7 +29,7 @@ my $content-regex = / \` ** 3 @languages .+ \` ** 3 /;
 my $global-verbose-mode = False;
 
 # how to identify markdown files
-my $markdown-file-regex = /\.md$$/; 
+my $markdown-file-regex = /\.md$$/;
 
 #| Converts Markdown Files in $input-dir into Jupyter Notebooks.
 sub MAIN(IO::Path(Str) :$input-dir =  $*PROGRAM.parent(2), #= defaults to ../../ relative to the path of this script. 
@@ -70,12 +70,17 @@ sub daemon-mode(IO::Path $input-dir) {
     single-run($input-dir);
     
     # see https://docs.raku.org/type/Supply#method_stable for details
-    my $supply = watch-recursive($input-dir, :update).stable(0.5);
-    
+    my $supply = watch-recursive($input-dir, :update);
+
+    if $global-verbose-mode {
+        $supply = $supply.map( { log-event($_); $_ } )
+    }
+    $supply = $supply.grep( { $_.path ~~ $markdown-file-regex } );
+
     say "Starting daemon mode - press CTRL+c to abort";
     react {
             whenever $supply -> $event {
-                process-event($event)
+                process-file($event.path.IO)
             }
     }
 }
@@ -133,15 +138,6 @@ sub needs-processing(IO::Path $markdown-file) {
     return True, $markdown-file-content
 }
 
-sub process-event(IO::Notification::Change $event){
-    if $event.path.IO.f and $event.path ~~ $markdown-file-regex {
-        say "File changed: {$event.path}, Type: {$event.event}" if $global-verbose-mode;
-        process-file($event.path.IO)
-    } else {
-        say "Ignoring File changed: {$event.path}, Type: {$event.event}" if $global-verbose-mode
-    }
-}
-
 sub find-markdown-files(IO::Path:D $dir){
     find :$dir, :type<file>, name => $markdown-file-regex; #, exclude => any($black-list-folder-regex, $black-list-file-regex); # we do exclude in needs-processing() to give good error messages
 }
@@ -149,6 +145,14 @@ sub find-markdown-files(IO::Path:D $dir){
 #| copy/paste from see https://github.com/raku-community-modules/IO-Notification-Recursive/blob/main/lib/IO/Notification/Recursive.rakumod
 sub find-dirs(IO::Path:D $dir) {
     slip $dir.IO, slip find :$dir, :type<dir>, exclude => $black-list-folder-regex
+}
+
+sub log-event(IO::Notification::Change $event){
+    if $global-verbose-mode {
+        $event.path.IO.f and $event.path ~~ $markdown-file-regex
+                ?? note "Processing {$event.event} event for {$event.path}"
+                !! note "Ignoring  {$event.event} event for {$event.path}"
+    }
 }
 
 sub watch-recursive(IO(Cool) $start, Bool :$update) {
