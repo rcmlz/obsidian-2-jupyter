@@ -5,7 +5,7 @@ use File::Find;
 # how to identify jupyter files
 my $jupyter-file-regex = /\.ipynb$$/;
 
-#| Converts Markdown Files in $input-dir into Jupyter Notebooks.
+#| Removes all Jupyter notebooks in $input-dir.
 sub MAIN(IO::Path(Str) :$input-dir =  $*PROGRAM.parent(2), #= defaults to ../../ relative to the path of this script. 
     ) {
 
