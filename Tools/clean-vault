@@ -1,0 +1,29 @@
+#!/usr/bin/env raku
+use v6.d;
+use File::Find;
+
+# how to identify jupyter files
+my $jupyter-file-regex = /\.ipynb$$/;
+
+#| Converts Markdown Files in $input-dir into Jupyter Notebooks.
+sub MAIN(IO::Path(Str) :$input-dir =  $*PROGRAM.parent(2), #= defaults to ../../ relative to the path of this script. 
+    ) {
+
+    fail "Input directory does not exist: $input-dir" unless $input-dir.d;
+
+    single-run($input-dir)
+}
+
+#| delete all jupyter files in input-dir
+sub single-run(IO::Path $input-dir) {
+    
+    my @files = find-jupyter-files($input-dir);
+    say "Reading from\t$input-dir";
+    say "Jupyter file count\t", @files.elems;
+    prompt "CTRL+c to stop - any other key to proceed.";
+    $_.say for unlink(@files)
+}
+
+sub find-jupyter-files(IO::Path:D $dir){
+    find :$dir, :type<file>, name => $jupyter-file-regex
+}
